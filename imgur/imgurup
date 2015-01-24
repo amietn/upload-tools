@@ -46,7 +46,7 @@ def upload(image_path):
 def main():
     """Program entry point"""
     parser = argparse.ArgumentParser(description="Upload images to imgur")
-    parser.add_argument("-f", "--show-filename",
+    parser.add_argument("-f", "--show-filenames",
         action="store_true", 
         help="show filenames",
         dest="is_filename_enabled")
