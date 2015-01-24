@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+
+
+"""Uploads an image to imgur and returns the image url"""
+
+
+__author__ = "Nils Amiet"
+
+
+import sys
+from base64 import b64encode
+import argparse
+
+import requests
+
+
+"""
+Create an application at https://api.imgur.com/
+in order to get a client ID.
+"""
+CLIENT_ID = "TODO"
+
+
+def image_to_b64(image_path):
+    """Encodes the image at given path to base64"""
+    with open(image_path, 'rb') as image_file:
+        return b64encode(image_file.read())
+
+
+def upload(image_path):
+    """Uploads the image at given path to imgur and returns the url"""
+    b64 = image_to_b64(image_path)
+
+    url = "https://api.imgur.com/3/image"
+    headers = {"Authorization": "Client-ID %s" % (CLIENT_ID,)}
+    data = {
+        "image": b64
+    }
+
+    response = requests.post(url, headers=headers, data=data)
+    image_url = response.json()["data"]["link"]
+
+    return image_url
+
+
+def main():
+    """Program entry point"""
+    parser = argparse.ArgumentParser(description="Upload images to imgur")
+    parser.add_argument("--show-filename", "-f", 
+        action="store_true", 
+        help="show filenames",
+        dest="is_filename_enabled")
+    parser.add_argument("filename", nargs="+")
+    args = parser.parse_args()
+
+    image_urls = [upload(image) for image in args.filename]
+    
+    for path, url in zip(args.filename, image_urls):
+        if args.is_filename_enabled:
+            print("%s %s" % (path, url))
+        else:
+            print("%s" % (url))
+
+
+if __name__ == "__main__":
+    main()
