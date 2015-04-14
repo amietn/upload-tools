@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+
+"""Upload a file to mega.co.nz"""
+
+import sys
+import os
+import argparse
+import time
+import json
+
+
+libsdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "sdk", "bindings", "python")
+if os.path.isdir(libsdir) and os.path.isfile(libsdir + '/.libs/_mega.so'):
+    sys.path.insert(0, libsdir)
+    sys.path.insert(0, libsdir + '/.libs')
+
+from mega import *
+
+
+
+# load config file
+config_file_path = os.path.expanduser("~/.config/megaup/megaup.conf")
+
+USERNAME, PASSWORD, APP_KEY = "", "", ""
+
+try:
+    with open(config_file_path, 'r') as f:
+        json_object = json.load(f)
+        USERNAME = json_object["username"]
+        PASSWORD = json_object["password"]
+        APP_KEY = json_object["app_key"]
+
+except Exception as e:
+    print("Unable to load config file at %s" % (config_file_path,))
+    print(e)
+    sys.exit(-1)
+
+global LOGGED_IN
+LOGGED_IN = False
+
+global RUNNING
+RUNNING = True
+
+global PENDING_REQUESTS
+PENDING_REQUESTS = 0
+
+global is_filename_enabled
+is_filename_enabled = False
+
+global is_verbose
+is_verbose = False
+
+
+
+def increase_requests():
+    global PENDING_REQUESTS
+    PENDING_REQUESTS += 1
+
+def decrease_requests():
+    global PENDING_REQUESTS
+    PENDING_REQUESTS -= 1
+
+    if PENDING_REQUESTS == 0:
+        global RUNNING
+        RUNNING = False
+
+def human_readable_size(num, suffix='B'):
+    for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+        if abs(num) < 1024.0:
+            return "%3.1f%s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f%s%s" % (num, 'Yi', suffix)
+
+
+
+class AppListener(MegaListener):
+
+    def notice(self, msg):
+        if is_verbose:
+            print(msg, file=sys.stderr)
+
+
+    def onRequestFinish(self, api, request, error):
+        if(error.getErrorCode() != MegaError.API_OK): return;
+
+        global LOGGED_IN
+
+        requestType = request.getType()
+        if requestType == MegaRequest.TYPE_LOGIN:
+            api.fetchNodes()
+
+        if requestType == MegaRequest.TYPE_LOGOUT:
+            LOGGED_IN = False
+
+        if requestType == MegaRequest.TYPE_FETCH_NODES:
+            LOGGED_IN = True
+
+        if requestType == MegaRequest.TYPE_EXPORT:
+            try:
+                link = request.getLink()
+                node_handle = request.getNodeHandle()
+                node = api.getNodeByHandle(node_handle)
+                filename = node.getName()
+
+
+                if is_filename_enabled:
+                    print(filename, link)
+                else:
+                    print(link)
+
+                decrease_requests()
+            except Exception as e:
+                print(e)
+
+
+    def onTransferFinish(self, api, transfer, error):
+        # export and print link
+        node_handle = transfer.getNodeHandle()
+        node = api.getNodeByHandle(node_handle)
+
+        api.exportNode(node)
+
+
+    def onTransferUpdate(self, api, transfer):
+        try:
+            total_bytes = transfer.getTotalBytes()
+            transfered_bytes = transfer.getTransferredBytes()
+            speed_bytes_per_sec = transfer.getSpeed()
+            percentage = int(transfered_bytes / total_bytes * 100)
+
+            fn = str(transfer.getFileName())
+            tr = str(human_readable_size(transfered_bytes))
+            tot = str(human_readable_size(total_bytes))
+            pa = str(percentage)
+            spd = str(human_readable_size(speed_bytes_per_sec))
+
+            self.notice("Uploading " + fn + " - " + tr + "/" + tot + " - " + pa + "% - " + spd + "/s")
+        except Exception as e:
+            print(e)
+
+
+def upload(api, localPath, remotePath):
+    api.startUpload(localPath, remotePath)
+
+
+def main():
+    """Program entry point"""
+    parser = argparse.ArgumentParser(description="Upload files to MEGA")
+    parser.add_argument("-f", "--show-filenames",
+        action="store_true",
+        help="show filenames",
+        dest="is_filename_enabled")
+    parser.add_argument("-v", "--verbose",
+        action="store_true",
+        help="show transfer progress and other verbose messages",
+        dest="is_verbose")
+    parser.add_argument("filename", nargs="+")
+    args = parser.parse_args()
+
+    global is_filename_enabled
+    is_filename_enabled = args.is_filename_enabled
+
+    global is_verbose
+    is_verbose = args.is_verbose
+
+
+    api = MegaApi(APP_KEY, None, None, "megaup")
+    listener = AppListener()
+    api.addListener(listener)
+
+    api.login(USERNAME, PASSWORD)
+
+    global LOGGED_IN
+    while not LOGGED_IN:
+        time.sleep(0.01)
+
+
+    try:
+        root = api.getRootNode()
+
+        file_count = len(args.filename)
+
+        global PENDING_REQUESTS
+        PENDING_REQUESTS = file_count
+
+        # upload file
+        for f in args.filename:
+            upload(api, f, root)
+
+
+    except Exception as e:
+        print(e)
+
+        global RUNNING
+        RUNNING = False
+
+    while RUNNING:
+        time.sleep(0.01)
+
+
+
+if __name__ == "__main__":
+	main()
