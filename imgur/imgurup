@@ -39,6 +39,7 @@ def upload(image_path):
 
     response = requests.post(url, headers=headers, data=data)
     image_url = response.json()["data"]["link"]
+    image_url = image_url.replace("http://", "https://")
 
     return image_url
 
@@ -47,14 +48,14 @@ def main():
     """Program entry point"""
     parser = argparse.ArgumentParser(description="Upload images to imgur")
     parser.add_argument("-f", "--show-filenames",
-        action="store_true", 
+        action="store_true",
         help="show filenames",
         dest="is_filename_enabled")
     parser.add_argument("filename", nargs="+")
     args = parser.parse_args()
 
     image_urls = [upload(image) for image in args.filename]
-    
+
     for path, url in zip(args.filename, image_urls):
         if args.is_filename_enabled:
             print("%s %s" % (path, url))
